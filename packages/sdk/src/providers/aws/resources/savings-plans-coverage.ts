@@ -59,7 +59,8 @@ const normalizeCoverage = (
 };
 
 /**
- * Loads SageMaker Savings Plans coverage for the last 30 complete days.
+ * Loads SageMaker Savings Plans coverage for the last 30 complete days. An account without SageMaker Savings Plans
+ * eligible usage returns no records; `DataUnavailableException` then means Cost Explorer has no data for the account.
  *
  * @param _resources - Unused because Cost Explorer coverage is account-scoped.
  * @param context - Optional discovery-run context for shared account identity resolution.
@@ -87,13 +88,10 @@ export const hydrateAwsSageMakerSavingsPlansCoverage = async (
         COST_EXPLORER_CONTROL_REGION,
         () =>
           client.send(
+            // Cost Explorer answers a query filtered to a service without eligible usage with
+            // DataUnavailableException, so coverage is grouped by service and an absent SageMaker group means no usage.
             new GetSavingsPlansCoverageCommand({
-              Filter: {
-                Dimensions: {
-                  Key: 'SERVICE',
-                  Values: [SAGEMAKER_SERVICE_NAME],
-                },
-              },
+              GroupBy: [{ Key: 'SERVICE', Type: 'DIMENSION' }],
               MaxResults: PAGE_SIZE,
               Metrics: ['SpendCoveredBySavingsPlans'],
               NextToken: nextToken,
@@ -106,7 +104,10 @@ export const hydrateAwsSageMakerSavingsPlansCoverage = async (
       );
 
       for (const coverage of response.SavingsPlansCoverages ?? []) {
-        const normalized = normalizeCoverage(accountId, coverage);
+        const service = coverage.Attributes?.SERVICE;
+        if (service && service !== SAGEMAKER_SERVICE_NAME) continue;
+        // A group without a service could be SageMaker, so it cannot count as absent usage.
+        const normalized = service ? normalizeCoverage(accountId, coverage) : null;
         if (normalized) {
           coverageByPeriod.set(`${normalized.periodStart}:${normalized.periodEnd}`, normalized);
         } else {
@@ -124,7 +125,7 @@ export const hydrateAwsSageMakerSavingsPlansCoverage = async (
         diagnostics: [
           {
             code: 'SavingsPlansCoverageIncomplete',
-            details: `${incompleteCoverageCount} SageMaker Savings Plans coverage record${incompleteCoverageCount === 1 ? '' : 's'} lacked a complete time period or numeric coverage and cost values.`,
+            details: `${incompleteCoverageCount} Savings Plans coverage record${incompleteCoverageCount === 1 ? '' : 's'} lacked a service, a complete time period, or numeric coverage and cost values.`,
             message:
               'Skipped SageMaker Savings Plans coverage because AWS Cost Explorer returned incomplete coverage evidence.',
             provider: 'aws',
