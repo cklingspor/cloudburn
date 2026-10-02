@@ -11,10 +11,21 @@ const servicesByMode = {
   ),
   iac: new Set(builtInRuleMetadata.filter((rule) => rule.supports.includes('iac')).map((rule) => rule.service)),
 } satisfies Record<Source, Set<string>>;
+const allServices = new Set(builtInRuleMetadata.map((rule) => rule.service));
 
 const normalizeRuleList = (value?: string[]): string[] | undefined => value?.map((ruleId) => ruleId.trim());
 const normalizeServiceList = (value?: string[]): string[] | undefined =>
   value?.map((service) => service.trim().toLowerCase());
+
+const assertKnownServices = (services: string[], validServices: Set<string>, context: string): void => {
+  const invalidService = services.find((service) => !validServices.has(service));
+
+  if (invalidService !== undefined) {
+    throw new Error(
+      `Unknown service "${invalidService}"${context}. Allowed services: ${Array.from(validServices).sort().join(', ')}.`,
+    );
+  }
+};
 
 const validateRuleList = (mode: Source, fieldName: keyof CloudBurnModeConfig, value?: string[]): void => {
   if (value === undefined) {
@@ -56,15 +67,28 @@ const validateServiceList = (mode: Source, value?: string[]): void => {
     if (typeof service !== 'string' || service.trim().length === 0) {
       throw new Error(`Config ${mode}.services must contain non-empty services.`);
     }
-
-    const normalizedService = service.trim().toLowerCase();
-
-    if (!servicesByMode[mode].has(normalizedService)) {
-      throw new Error(
-        `Unknown service "${normalizedService}" in ${mode}.services. Allowed services: ${Array.from(servicesByMode[mode]).sort().join(', ')}.`,
-      );
-    }
   }
+
+  assertKnownServices(normalizeServiceList(value) ?? [], servicesByMode[mode], ` in ${mode}.services`);
+};
+
+/**
+ * Lower-cases service names and rejects any service without built-in rules, so a typo fails instead of silently
+ * selecting no rules.
+ *
+ * @param services - Service names to check.
+ * @param mode - Scan mode whose rules must cover each service; omit to accept any built-in rule service.
+ * @returns The lower-cased service names in their supplied order.
+ * @throws Error naming the first unknown service and listing the allowed services.
+ */
+export const validateServices = (services: string[], mode?: Source): string[] => {
+  const normalized = services.map((service) => service.toLowerCase());
+  assertKnownServices(
+    normalized,
+    mode === undefined ? allServices : servicesByMode[mode],
+    mode === undefined ? '' : ` for ${mode}`,
+  );
+  return normalized;
 };
 
 const validateModeConfig = (mode: Source, config: CloudBurnModeConfig): CloudBurnModeConfig => {

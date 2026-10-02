@@ -1,6 +1,5 @@
-import type { BuiltInRuleMetadata, ScanResult } from '@cloudburn/sdk';
+import { type BuiltInRuleMetadata, flattenFindings, type ScanResult } from '@cloudburn/sdk';
 import { type Command, InvalidArgumentError } from 'commander';
-import { flattenScanResult, getScanDiagnostics } from './shared.js';
 
 /** Supported stdout formats for CloudBurn CLI responses. */
 export type OutputFormat = 'json' | 'table';
@@ -97,11 +96,9 @@ const ruleListColumns: ColumnSpec[] = [
   { key: 'description', header: 'Description' },
 ];
 
-const formatOptionDescription =
-  'Options: table: human-readable terminal output.\njson: machine-readable output for automation and downstream systems.';
-
 /** Shared `--format` help text used across root and compatibility aliases. */
-export const OUTPUT_FORMAT_OPTION_DESCRIPTION = formatOptionDescription;
+export const OUTPUT_FORMAT_OPTION_DESCRIPTION =
+  'Options: table: human-readable terminal output.\njson: machine-readable output for automation and downstream systems.';
 
 /** Parses a user-provided CLI output format. */
 export const parseOutputFormat = (value: string): OutputFormat => {
@@ -245,7 +242,7 @@ const renderTable = (response: CliResponse): string => {
 };
 
 const projectFindingRows = (result: ScanResult): RecordRow[] =>
-  flattenScanResult(result).map(({ finding, message, provider, ruleId, service, severity, source }) => ({
+  flattenFindings(result).map(({ finding, message, provider, ruleId, service, severity, source }) => ({
     accountId: finding.accountId ?? '',
     actionType: finding.actionType ?? '',
     message,
@@ -263,7 +260,7 @@ const projectFindingRows = (result: ScanResult): RecordRow[] =>
   }));
 
 const projectDiagnosticRows = (result: ScanResult): RecordRow[] =>
-  getScanDiagnostics(result).map((diagnostic) => ({
+  (result.diagnostics ?? []).map((diagnostic) => ({
     message: diagnostic.message,
     provider: diagnostic.provider,
     region: diagnostic.region ?? '',
